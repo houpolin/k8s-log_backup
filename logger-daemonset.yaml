@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
       - name: logging
-        image: alpine
+        image: <RSYSLOG_IMAGE_MYSELF>
         resources:
           limits:
             cpu: "500m"
