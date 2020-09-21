@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rsyslog-config
+  labels:
+    version: v1
+data:
+  logger.conf: |
+    module(load="imfile")
+    template (name="LongTagForwardFormat" type="string" string="<%PRI%>%TIMESTAMP:::date-rfc3339% %HOSTNAME% %$.dir%_%$.type%_%$.suffix%%msg:::sp-if-no-1st-sp%%msg%\n")
+
+    ruleset(name="monlog") {
+      set $.type=re_extract($!metadata!filename, "/home/project/([^/]*)/([^/]*)/.*", 0, 2, "unknown");
+      set $.suffix=re_extract($!metadata!filename, "(.*)/([^/]*[^/.log])", 0, 2, "all.log");
+      set $.dir=re_extract($!metadata!filename, "/home/project/([^/]*)/.*", 0, 1, "other");
+
+      action(type="omfwd" queue.type="linkedlist" queue.spoolDirectory="/var/lib/rsyslog/queue" queue.filename="queue" action.resumeRetryCount="-1" queue.saveOnShutdown="on" target="192.168.56.150" port="514" protocol="tcp" template="LongTagForwardFormat")
+    }
+
+    input(type="imfile" file="/home/project/*/*/*.log" tag="logger_" addMetadata="on" severity="info" facility="local6" reopenOnTruncate="on" ruleset="monlog")
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: logs-move
+  labels:
+    app: logging
+spec:
+  selector:
+    matchLabels:
+      app: logging
+  template:
+    metadata:
+      labels:
+        app: logging
+    spec:
+      containers:
+      - name: logging
+        image: alpine
+        resources:
+          limits:
+            cpu: "500m"
+          requests:
+            cpu: "500m"
+        volumeMounts:
+        - name: nginx-logs
+          mountPath: /var/log/nginx
+        - name: app-logs
+          mountPath: /home/project
+          readOnly: true
+        - name: rsyslog-config
+          mountPath: /etc/rsyslog.d
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: nginx-logs
+        hostPath:
+          path: /var/log/nginx
+          type: DirectoryOrCreate
+      - name: app-logs
+        hostPath:
+          path: /home/project
+          type: DirectoryOrCreate
+      - name: rsyslog-config
+        configMap:
+          name: rsyslog-config
